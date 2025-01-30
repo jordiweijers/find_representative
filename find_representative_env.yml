@@ -1,0 +1,10 @@
+name: find_representative
+channels:
+- conda-forge
+- defaults
+- bioconda
+dependencies:
+- biopython=1.85
+- pandas=2.2.3
+- pytest=8.3.4
+- diamond
