@@ -9,4 +9,5 @@ setup(
 	author_email="s2228483@vuw.leidenuniv.nl",
 	description=DESCRIPTION,
 	packages=find_packages(),
-	entry_points={'console_scripts': ["getphylo=bin.main:main"]}
+	entry_points={'console_scripts': ["find_representative=bin.main:main"]}
+)
