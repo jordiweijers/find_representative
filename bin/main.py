@@ -1,6 +1,6 @@
 import argparse
 import os
-from find_representative.utils import genbank_to_protein_fasta, make_diamond_db, run_diamond, make_presence_absence_table, calculate_representation_score
+from bin.utils import genbank_to_protein_fasta, make_diamond_db, run_diamond, make_presence_absence_table, calculate_representation_score
 
 def parse_arguments():
 	""" Setup argument parsing and return parsed arguments."""
