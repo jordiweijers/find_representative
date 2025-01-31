@@ -23,6 +23,14 @@ pip install .
 Find Representative takes a directory containing genbank files and outputs a directory with the output files
 
 ```
---input_dir	A Directory containing GenBank files (*.gbff).
---output_dir	A path to were the output directory can be created.
+optional arguments:
+  -h, --help            show this help message and exit
+  -qc , --query_cover   Minimum percent query cover for diamond search. (Default: 70)
+  -id , --identity      Minimum percent identity for diamond search. (Default: 35)
+
+Input Options:
+  -i , --input_dir      Path to the input directory containing GenBank files.
+
+Output Options:
+  -o , --output_dir     Path to save the output directory to.
 ```
