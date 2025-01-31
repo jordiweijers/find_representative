@@ -46,12 +46,13 @@ def make_diamond_db(protein_fasta: str, dmnd_db: str, dmnd_path: str = "diamond"
 		raise FileNotFoundError(f"DIAMOND executable not found at {dmnd_path}. Please ensure it is installed and in your PATH.")
 	command = [
 		dmnd_path, 'makedb',
-		'--in', protein_fasta,
-		'--db', dmnd_db
+		"--in", protein_fasta,
+		"--db", dmnd_db,
+		"--quiet"
 	]
 	subprocess.run(command, check=True)
 
-def run_diamond(query: str, dmnd_db: str, tsv_file: str, dmnd_path: str = "diamond") -> None:
+def run_diamond(query: str, dmnd_db: str, tsv_file: str, query_cover: float, identity: float, dmnd_path: str = "diamond") -> None:
 	"""
 	Runs DAIMOND BLAST to align protein sequences against a DIAMOND database.
 
@@ -59,6 +60,8 @@ def run_diamond(query: str, dmnd_db: str, tsv_file: str, dmnd_path: str = "diamo
 		query: Path to a input query protein FASTA file.
 		dmnd_db: Path to a input DIAMOND database.
 		tsv_file: Path to tsv file containing the output.
+		query_cover: A float representing the minimum query cover percentage.
+		identity: A float representing the minimum identity percentage.
 		dmnd_path: Path to the DIAMOND executable (default is 'diamond'if it is in the PATH).
 	Returns:
 		None
@@ -71,9 +74,10 @@ def run_diamond(query: str, dmnd_db: str, tsv_file: str, dmnd_path: str = "diamo
 		"--query", query,
 		"--db", dmnd_db,
 		"--out", tsv_file,
-		"--query-cover", str(70),
-		"--id", str(35),
+		"--query-cover", str(query_cover),
+		"--id", str(identity),
 		"-k0",
+		"--quiet",
 		"--outfmt", "6", "qseqid", "sseqid"
 	]
 	subprocess.run(command, check=True)
