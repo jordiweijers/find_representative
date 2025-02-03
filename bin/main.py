@@ -39,7 +39,8 @@ def process_genbank(filename, genbank_dir, pa_dir, blast_output_tsv, rep_score_d
 	pa_table.to_csv(pa_table_path)
 	# Calculate the representation score
 	rep_score = calculate_representation_score(filename, pa_table)
-	rep_score_dict[basename] = rep_score
+	rep_nom = rep_score / len(pa_table.columns)
+	rep_score_dict[basename] = [rep_score, rep_nom]
 
 def main ():
 	# Parse and Validate arguments
@@ -95,14 +96,15 @@ def main ():
 	pool.join()
 	rep_score_dict = dict(rep_score_dict)
 	# Sorting the representation dictionary from highest to lowest
-	sorted_rep_score_dict = sorted(rep_score_dict.items(), key=lambda x: x[1], reverse=True)
+	sorted_rep_score_dict = sorted(rep_score_dict.items(), key=lambda x: x[1][0], reverse=True)
 	# Print and wirte sorted representation dictionary to a file
 	output_filename = os.path.join(output_dir, "representation_scores.txt")
 	with open(output_filename, "w") as file:
 		print("\nRepresentation Scores:")
-		file.write("Representation Scores:\n")
-		for genbank_filename, rep_score in sorted_rep_score_dict:
-			output_line = f"{genbank_filename}: {rep_score:.2f}"
+		file.write("Representation Scores:\nFilename\tScore\tNormalized_score\n")
+		for genbank_filename, scores in sorted_rep_score_dict:
+			rep_score, rep_nom = scores
+			output_line = f"{genbank_filename}\t{rep_score:.2f}\t{rep_nom:.4f}"
 			print(output_line)
 			file.write(output_line + "\n")
 	print(f"Results saved to {output_filename}")

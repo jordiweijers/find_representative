@@ -152,10 +152,8 @@ def calculate_representation_score(genbank_filename: str, pa_table: str) -> floa
 	if genbank_filename not in pa_table.index:
 		raise ValueError(f"GenBank file '{genbank_filename}' not found in the presence-absence table")
 	score = 0
-	num_gene_families = len(pa_table.columns)
 	for gene_name in pa_table.columns:
 		base = calculate_gene_family_base_value(gene_name, pa_table)
 		modifier = calculate_gene_family_modifier(gene_name, genbank_filename, pa_table)
 		score += base * modifier
-	normalized_score = score / num_gene_families
-	return normalized_score
+	return score
