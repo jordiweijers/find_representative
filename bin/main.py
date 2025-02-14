@@ -1,11 +1,20 @@
 import argparse
 import os
 import multiprocessing
-from bin.utils import genbank_to_protein_fasta, make_diamond_db, run_diamond, make_presence_absence_table, calculate_representation_score
+import pandas as pd
+from bin.utils import genbank_to_protein_fasta, make_diamond_db, run_diamond, make_presence_absence_table, calculate_jaccard_similarity_scores, construct_matrix, find_medoid, calculate_representation_scores
+
+description = """
+Find the most representative genome from a set of similar genomes, based on the presence/absence of genes.
+
+Developer: Jordi Weijers
+Affiliation: Institute of Biology Leiden, Leiden University
+Please contact Jordi at s2228483@vuw.leidenuniv.nl if you have any issues.
+Version: v0.2.0"""
 
 def parse_arguments():
 	""" Setup argument parsing and return parsed arguments."""
-	parser = argparse.ArgumentParser(description="Find the most representative genome from a set of similar genomes, based on the presence/absence of genes")
+	parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
 	input_group = parser.add_argument_group("Input Options")
 	input_group.add_argument('-i', '--input_dir', type=str, required=True, help="Path to the input directory containing GenBank files.", metavar="")
 	output_group = parser.add_argument_group("Output Options")
@@ -28,7 +37,7 @@ def validate_arguments(genbank_dir: str, output_dir: str, query_cover: float, id
 	if not (0 <= query_cover <= 100):
 		raise ValueError("Error: --query_cover must be between 0 and 100.")
 
-def process_genbank(filename, genbank_dir, pa_dir, blast_output_tsv, rep_score_dict):
+def process_genbank(filename, genbank_dir, pa_dir, blast_output_tsv, pa_tables):
 	"""
 	Process a GenBank file and make a presence absence table and calculate the representation score
 	"""
@@ -37,10 +46,7 @@ def process_genbank(filename, genbank_dir, pa_dir, blast_output_tsv, rep_score_d
 	pa_table_path = os.path.join(pa_dir, f"{basename}.csv")
 	pa_table = make_presence_absence_table(filename, blast_output_tsv)
 	pa_table.to_csv(pa_table_path)
-	# Calculate the representation score
-	rep_score = calculate_representation_score(filename, pa_table)
-	rep_nom = rep_score / len(pa_table.columns)
-	rep_score_dict[basename] = [rep_score, rep_nom]
+	pa_tables[basename] = pa_table
 
 def main ():
 	# Parse and Validate arguments
@@ -52,7 +58,7 @@ def main ():
 	validate_arguments(genbank_dir, output_dir, query_cover, identity)
 
 	# Initialize variables
-	rep_score_dict = {}
+	pa_tables = {}
 
 	# Make protein FASTA files
 	print("Making protein FASTA files")
@@ -88,26 +94,38 @@ def main ():
 	os.makedirs(pa_dir, exist_ok=True)
 	# Use multiprocessing for parallel processing
 	manager = multiprocessing.Manager()
-	rep_score_dict = manager.dict()
+	pa_tables = manager.dict()
 	pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-	tasks = [(filename, genbank_dir, pa_dir, blast_output_tsv, rep_score_dict) for filename in os.listdir(genbank_dir)]
+	tasks = [(filename, genbank_dir, pa_dir, blast_output_tsv, pa_tables) for filename in os.listdir(genbank_dir)]
 	pool.starmap(process_genbank, tasks)
 	pool.close()
 	pool.join()
-	rep_score_dict = dict(rep_score_dict)
-	# Sorting the representation dictionary from highest to lowest
-	sorted_rep_score_dict = sorted(rep_score_dict.items(), key=lambda x: x[1][0], reverse=True)
-	# Print and wirte sorted representation dictionary to a file
-	output_filename = os.path.join(output_dir, "representation_scores.txt")
-	with open(output_filename, "w") as file:
-		print("\nRepresentation Scores:")
-		file.write("Representation Scores:\nFilename\tScore\tNormalized_score\n")
-		for genbank_filename, scores in sorted_rep_score_dict:
-			rep_score, rep_nom = scores
-			output_line = f"{genbank_filename}\t{rep_score:.2f}\t{rep_nom:.4f}"
-			print(output_line)
-			file.write(output_line + "\n")
-	print(f"Results saved to {output_filename}")
+	pa_tables = dict(pa_tables)
+
+	# Calculating the Jaccard similarity scores
+	print("Calculating the Jaccard similarity scores")
+	jaccard_similarity_scores = calculate_jaccard_similarity_scores(pa_tables)
+	# Write the Jaccard similarity scores to matrix files
+	jaccard_matrix_dir = os.path.join(output_dir, "jaccard_similarity_matrices")
+	os.makedirs(jaccard_matrix_dir, exist_ok=True)
+	for ref_genbank_filename, jac_sim_scores in jaccard_similarity_scores.items():
+		jac_sim_df = pd.DataFrame(list(jac_sim_scores.items()), columns=["Other_GenBank", "Jaccad_Similarity_Score"])
+		jac_sim_df.insert(0, "Reference_GenBank", ref_genbank_filename)
+		output_file = os.path.join(jaccard_matrix_dir, f"{ref_genbank_filename}_jaccard_matrix.csv")
+		jac_sim_df.to_csv(output_file, index=False)
+	# Concatenate the Jaccard matrices
+	jaccard_matrix = construct_matrix(jaccard_similarity_scores)
+	# Write the concatenated Jaccard matrix to file
+	jaccard_matrix_path = os.path.join(output_dir, "jaccard_matrix.csv")
+	jaccard_matrix.to_csv(jaccard_matrix_path)
+	# Calculate the representation scores
+	representation_scores_df = calculate_representation_scores(jaccard_matrix)
+	output_file = os.path.join(output_dir, "representation_scores.tsv")
+	representation_scores_df.to_csv(output_file, sep="\t", index=False)
+	representative = find_medoid(jaccard_matrix)
+
+	print(f"All steps completed. Results saved to '{output_dir}'.")
+	print(f"The representative is: {representative}")
 
 if __name__ == "__main__":
 	main()
