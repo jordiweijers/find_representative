@@ -1,0 +1,13 @@
+[2025-08-21 12:33:21] INFO     main_logger: Starting pipeline
+[2025-08-21 12:33:21] INFO     main_logger: Making protein FASTA files
+[2025-08-21 12:33:22] INFO     main_logger: Step took 0.43 seconds
+[2025-08-21 12:33:22] INFO     main_logger: Making the DIAMOND database
+[2025-08-21 12:33:22] INFO     main_logger: Step took 0.05 seconds
+[2025-08-21 12:33:22] INFO     main_logger: Running the DIAMOND all vs all
+[2025-08-21 12:33:22] INFO     main_logger: Step took 0.65 seconds
+[2025-08-21 12:33:22] INFO     main_logger: Making the presence-absence tables
+[2025-08-21 12:33:23] INFO     main_logger: Step took 0.83 seconds
+[2025-08-21 12:33:23] INFO     main_logger: Calculating the Jaccard similarity scores
+[2025-08-21 12:33:23] INFO     main_logger: Step took 0.08 seconds
+[2025-08-21 12:33:24] INFO     main_logger: All steps completed in 2.37 seconds. Results saved to 'example/output/'.
+[2025-08-21 12:33:24] INFO     main_logger: The representative is: window_601--NPDC045376

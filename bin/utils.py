@@ -1,3 +1,4 @@
+import logging
 import os
 from Bio import SeqIO
 import shutil
@@ -6,6 +7,8 @@ import csv
 import pandas as pd
 import numpy as np
 from sklearn.manifold import MDS
+
+logger = logging.getLogger(__name__)
 
 def genbank_to_protein_fasta(genbank_file: str, protein_fasta: str, log_file: str) -> None:
 	"""
@@ -18,47 +21,55 @@ def genbank_to_protein_fasta(genbank_file: str, protein_fasta: str, log_file: st
 		protein_fasta: Path to output protein FASTA file.
 		log_file: Path to log file to append processing statistics.
 	"""
+	if not os.path.exists(genbank_file):
+		logger.error(f"GenBank file not found: {genbank_file}.")
+		raise FileNotFoundError(f"GenBank file not found: {genbank_file}.")
+
 	lines = []
 	basename = os.path.splitext(os.path.basename(genbank_file))[0]
 	written_count = 0
 	skipped_no_translation = 0
 	skipped_pseudogene = 0
 
-	for record in SeqIO.parse(genbank_file, "genbank"):
-		for feature in record.features:
-			if feature.type != "CDS":
-				continue
+	try:
+		for record in SeqIO.parse(genbank_file, "genbank"):
+			for feature in record.features:
+				if feature.type != "CDS":
+					continue
 
-			# Skip pseudogenes
-			if "pseudo" in feature.qualifiers or "pseudogene" in feature.qualifiers:
-				skipped_pseudogene += 1
-				continue
+				# Skip pseudogenes
+				if "pseudo" in feature.qualifiers or "pseudogene" in feature.qualifiers:
+					skipped_pseudogene += 1
+					continue
 
-			# Get translation
-			translation = feature.qualifiers.get("translation")
-			if not translation:
-				skipped_no_translation += 1
-				continue
+				# Get translation
+				translation = feature.qualifiers.get("translation")
+				if not translation:
+					skipped_no_translation += 1
+					continue
 
-			locus_tag = feature.qualifiers.get("locus_tag", ["N/A"])[0].split("|")[0]
-			location = str(feature.location).replace(" ", "")
-			protein_seq = str(translation[0]).replace(" ", "").replace("\n", "")
+				locus_tag = feature.qualifiers.get("locus_tag", ["N/A"])[0].split("|")[0]
+				location = str(feature.location).replace(" ", "")
+				protein_seq = str(translation[0]).replace(" ", "").replace("\n", "")
 
-			lines.append(f">{locus_tag}|{location}|{basename}")
-			lines.append(protein_seq)
-			written_count += 1
+				lines.append(f">{locus_tag}|{location}|{basename}")
+				lines.append(protein_seq)
+				written_count += 1
 
-	# Append sequences to output FASTA
-	with open(protein_fasta, "a") as file:
-		file.write("\n".join(lines) + "\n")
+		# Append sequences to output FASTA
+		with open(protein_fasta, "a") as file:
+			file.write("\n".join(lines) + "\n")
 
-	# Append log entry
-	with open(log_file, "a") as log:
-		log.write(
-			f"{basename}: Wrote {written_count} protein sequences | "
-			f"Skipped {skipped_no_translation} with no translation | "
-			f"Skipped {skipped_pseudogene} pseudogenes\n"
-		)
+		# Append log entry
+		with open(log_file, "a") as log:
+			log.write(
+				f"{basename}: Wrote {written_count} protein sequences | "
+				f"Skipped {skipped_no_translation} with no translation | "
+				f"Skipped {skipped_pseudogene} pseudogenes\n"
+			)
+	except Exception as e:
+		logger.error(f"Error while processing {genbank_file}: {e}.", exc_info=True)
+		raise
 
 def make_diamond_db(protein_fasta: str, dmnd_db: str, cpus: int, dmnd_path: str = "diamond") -> None:
 	"""
@@ -73,6 +84,7 @@ def make_diamond_db(protein_fasta: str, dmnd_db: str, cpus: int, dmnd_path: str 
 	"""
 
 	if not shutil.which(dmnd_path):
+		logger.error(f"DIAMOND executable not found at {dmnd_path}. Please ensure it is installed an in your PATH.")
 		raise FileNotFoundError(f"DIAMOND executable not found at {dmnd_path}. Please ensure it is installed and in your PATH.")
 	command = [
 		dmnd_path, 'makedb',
@@ -81,7 +93,11 @@ def make_diamond_db(protein_fasta: str, dmnd_db: str, cpus: int, dmnd_path: str 
 		"--threads", str(cpus),
 		"--quiet"
 	]
-	subprocess.run(command, check=True)
+	try:
+		subprocess.run(command, check=True)
+	except subprocess.CalledProcessError as e:
+		logger.error(f"DIAMOND BLAST failed: {e}.")
+		raise RuntimeError(f"DIAMOND BLAST failed: {e}.")
 
 def run_diamond(query: str, dmnd_db: str, tsv_file: str, query_cover: float, identity: float, cpus: int, dmnd_path: str = "diamond") -> None:
 	"""
@@ -99,6 +115,7 @@ def run_diamond(query: str, dmnd_db: str, tsv_file: str, query_cover: float, ide
 		None
 	"""
 	if not shutil.which(dmnd_path):
+		logger.error(f"DIAMOND executable not found at {dmnd_path}. Please ensure it is installed an in your PATH.")
 		raise FileNotFoundError(f"DIAMOND executable not found at {dmnd_path}. Please ensure it is installed and in your PATH.")
 
 	command = [
@@ -113,7 +130,11 @@ def run_diamond(query: str, dmnd_db: str, tsv_file: str, query_cover: float, ide
 		"--quiet",
 		"--outfmt", "6", "qseqid", "sseqid"
 	]
-	subprocess.run(command, check=True)
+	try:
+		subprocess.run(command, check=True)
+	except subprocess.CalledProcessError as e:
+		logger.error(f"DIAMOND BLAST failed: {e}.")
+		raise RuntimeError(f"DIAMOND BLAST failed: {e}.")
 
 def make_presence_absence_table(genbank_filename: str, blast_output: str) -> tuple[np.ndarray, dict, dict]:
 	"""
@@ -126,6 +147,10 @@ def make_presence_absence_table(genbank_filename: str, blast_output: str) -> tup
 		genome_map_index: A Dictionary mapping the genome name to the row index
 		gene_map_index: A Dictionary mapping the gene name to the column index
 	"""
+	if not os.path.exists(blast_output):
+		logger.error(f"BLAST TSV file not found: {blast_output}.")
+		raise FileNotFoundError(f"BLAST TSV file not found: {blast_output}.")
+
 	basename = os.path.splitext(genbank_filename)[0]
 	genes = []
 	genomes = []
@@ -138,6 +163,7 @@ def make_presence_absence_table(genbank_filename: str, blast_output: str) -> tup
 				genomes.append(sseqid.split("|")[-1])   # extract only the genome name
 
 	if not genes:
+		logger.warning(f"No matching genes found in BLAST output {blast_output} for genome {basename}.")
 		return np.zeros((0,0), dtype=int), [], []
 
 	genes = np.array(genes)
@@ -160,19 +186,30 @@ def write_pa_table_to_csv(pa_matrix: np.ndarray, genome_map_index: dict[str, int
 		pa_matrix: NumPy array of shape (num_s_genomes, num_q_genes)
 		genome_map_index: A Dictionary mapping the genome name to a row index
 		gene_map_index: A Dictionary mapping the gene name to a column index
-	output_path_csv: The Path where to save the CSV file
+		output_path_csv: The Path where to save the CSV file
 	Returns:
 		None
 	"""
+	if pa_matrix.size == 0:
+		logger.warning(f"Empty presence-absence matrix, nothing written to {output_path_csv}.")
+		return
+	num_genomes, num_genes = pa_matrix.shape
+	if len(genome_map_index) != num_genomes or len(gene_map_index) != num_genes:
+		logger.error(f"Matrix {pa_matrix} shape does not match mapping.")
+		raise ValueError("Matrix {pa_matrix shape doest not match mapping.")
 	genomes_sorted = [genome for genome, idx in sorted(genome_map_index.items(), key=lambda x: x[1])]
 	genes_sorted = [gene for gene, idx in sorted(gene_map_index.items(), key=lambda x: x[1])]
-	with open(output_path_csv, mode="w", newline='') as file:
-		writer = csv.writer(file)
-		writer.writerow(["Gene Names"] + genes_sorted)
-		for genome in genomes_sorted:
-			row_idx = genome_map_index[genome]
-			row_data = pa_matrix[row_idx, :]
-			writer.writerow([genome] + row_data.tolist())
+	try:
+		with open(output_path_csv, mode="w", newline='') as file:
+			writer = csv.writer(file)
+			writer.writerow(["Gene Names"] + genes_sorted)
+			for genome in genomes_sorted:
+				row_idx = genome_map_index[genome]
+				row_data = pa_matrix[row_idx, :]
+				writer.writerow([genome] + row_data.tolist())
+	except Exception as e:
+		logger.error(f"Failed to write presence-absence CSV to {output_path_csv}: {e}.", exc_info=True)
+		raise
 
 def calculate_jaccard_similarity_scores(pa_tables: dict[str, dict[np.array, dict, dict]]) -> dict[str, dict[str, float]]:
 	"""
@@ -182,29 +219,31 @@ def calculate_jaccard_similarity_scores(pa_tables: dict[str, dict[np.array, dict
 	Returns:
 	jaccard_similarity_scores: A Dictionary containing the different Jaccard similarity matrices for each presence-absence table.
 	"""
+	if not pa_tables:
+		logger.error("No presence-absence tables provided for Jaccard calculations.")
+		raise ValueError("No presence-absence talbes provided for Jaccard calculations.")
 	jaccard_similarity_scores = {}
 	for ref_genbank_filename, (pa_matrix, genome_map_index, gene_map_index) in pa_tables.items():
+		if pa_matrix.size == 0:
+			logger.warning(f"Skipping {ref_genbank_filename}: empty presence-absence matrix.")
+			continue
 		if ref_genbank_filename not in genome_map_index:
-			raise ValueError(f"Reference genome '{ref_genbank_filename}' not found in row labels {genome_map_index}")
-
+			raise ValueError(f"Reference genome '{ref_genbank_filename}' not found in genome mapping {genome_map_index}.")
 		gene_freq = (pa_matrix > 0).sum(axis=0)
 		max_freq = gene_freq.max()
 		if max_freq == 0:
+			logger.warning(f"All gene frequencies are zero for {ref_genbank_filename}, assigning zero weights.")
 			weights = np.zeros_like(gene_freq, dtype=float)
 		else:
 			weights = 1 - (gene_freq / max_freq)
-
 		ref_idx = genome_map_index[ref_genbank_filename]
 		ref_vector = pa_matrix[ref_idx, :]
 		min_matrix = np.minimum(pa_matrix, ref_vector)
 		max_matrix = np.maximum(pa_matrix, ref_vector)
-
 		weighted_intersection = np.sum(weights * min_matrix, axis=1)
 		weighted_union = np.sum(weights * max_matrix, axis=1)
-
 		with np.errstate(divide="ignore", invalid="ignore"):
 			jaccard_scores = np.where(weighted_union != 0, weighted_intersection / weighted_union, 0.0)
-
 		jac_dict = {genome_name: float(jaccard_scores[idx]) for genome_name, idx in genome_map_index.items()}
 		jaccard_similarity_scores[ref_genbank_filename] = jac_dict
 	return jaccard_similarity_scores
@@ -217,6 +256,9 @@ def construct_matrix(jaccard_similarity_scores: dict[str, dict[str, float]]) -> 
 	Returns:
 		jaccard_matrix: A Pandas DataFrame containing the complete Jaccard similarity matrix.
 	"""
+	if not jaccard_similarity_scores:
+		logger.error("No Jaccard similarity scores provided.")
+		raise ValueError("No Jaccard similarity scores provided.")
 	genomes = list(jaccard_similarity_scores.keys())
 	jaccard_matrix = pd.DataFrame(index=genomes, columns=genomes, dtype=float)
 	for genome_i in genomes:
@@ -233,6 +275,7 @@ def construct_matrix(jaccard_similarity_scores: dict[str, dict[str, float]]) -> 
 				elif score_j_i is None:
 					average_score = score_i_j
 				else:
+					logger.warning(f"No similarity scores found for {genome_i} and {genome_j}. Setting to 0.")
 					average_score = 0
 				jaccard_matrix.loc[genome_i, genome_j] = average_score
 	return jaccard_matrix
@@ -246,8 +289,12 @@ def find_medoid(jaccard_matrix: pd.DataFrame) -> str:
 		medoid_index: The index label of the medoid.
 	"""
 	distance_matrix = 1 - jaccard_matrix
-	medoid_index = distance_matrix.sum(axis=1).idxmin()
-	return medoid_index
+	try:
+		medoid_index = distance_matrix.sum(axis=1).idxmin()
+		return medoid_index
+	except Exception as e:
+		logger.error(f"Failed to compute medoid: {e}")
+		raise
 
 def calculate_representation_scores(jaccard_matrix: pd.DataFrame) -> dict[str, float]:
 	"""
@@ -257,8 +304,12 @@ def calculate_representation_scores(jaccard_matrix: pd.DataFrame) -> dict[str, f
 	Returns:
 		representation_scores: A Pandas DataFrame containing the representation scores.
 	"""
-	distance_matrix = 1 - jaccard_matrix
-	rep_scores = distance_matrix.sum(axis=1)
-	representation_scores = pd.DataFrame({"Genome": rep_scores.index, "Representation_Score": rep_scores.values})
-	representation_scores = representation_scores.sort_values(by="Representation_Score", ascending=True).reset_index(drop=True)
-	return representation_scores
+	try:
+		distance_matrix = 1 - jaccard_matrix
+		rep_scores = distance_matrix.sum(axis=1)
+		representation_scores = pd.DataFrame({"Genome": rep_scores.index, "Representation_Score": rep_scores.values})
+		representation_scores = representation_scores.sort_values(by="Representation_Score", ascending=True).reset_index(drop=True)
+		return representation_scores
+	except Exception as e:
+		logger.error(f"Failed to calculate representation scores: {e}")
+		raise
