@@ -1,5 +1,7 @@
 import argparse
 import os
+import time
+import logging
 import multiprocessing
 import pandas as pd
 from bin.utils import (
@@ -82,6 +84,30 @@ def validate_arguments(genbank_dir: str, output_dir: str, query_cover: float, id
 		cpus = multiprocessing.cpu_count()
 	return cpus
 
+def setup_logging(output_dir):
+	""" Setup up logging."""
+	log_file = os.path.join(output_dir, "find_representative.log")
+	logger = logging.getLogger("main_logger")
+	logger.setLevel(logging.DEBUG)
+	if logger.hasHandlers():
+		logger.handlers.clear()
+	# Console handler
+	console_handler = logging.StreamHandler()
+	console_handler.setLevel(logging.INFO)
+	console_formatter = logging.Formatter("%(message)s")
+	console_handler.setFormatter(console_formatter)
+	logger.addHandler(console_handler)
+	# File handler
+	file_handler = logging.FileHandler(log_file)
+	file_handler.setLevel(logging.DEBUG)
+	file_formatter = logging.Formatter(
+		"[%(asctime)s] %(levelname)-8s %(name)s: %(message)s",
+		datefmt="%Y-%m-%d %H:%M:%S"
+	)
+	file_handler.setFormatter(file_formatter)
+	logger.addHandler(file_handler)
+	return logger
+
 def process_genbank(filename, genbank_dir, pa_dir, blast_output_tsv, pa_tables):
 	"""
 	Process a GenBank file and make presence absence table
@@ -93,6 +119,8 @@ def process_genbank(filename, genbank_dir, pa_dir, blast_output_tsv, pa_tables):
 	pa_tables[basename] = (pa_table, genome_map_index, gene_map_index)
 
 def main():
+	# Start timer
+	total_start = time.time()
 	# Parse and validate arguments
 	args = parse_arguments()
 	genbank_dir = args.input_dir
@@ -100,9 +128,13 @@ def main():
 	query_cover = args.query_cover
 	identity = args.identity
 	cpus = validate_arguments(genbank_dir, output_dir, query_cover, identity, args.cpus)
+	# Setup logging
+	logger = setup_logging(output_dir)
+	logger.info("Starting pipeline")
 
 	# Make protein FASTA files
-	print("Making protein FASTA files")
+	step_start = time.time()
+	logger.info("Making protein FASTA files")
 	protein_fasta_dir = os.path.join(output_dir, "protein_fasta")
 	os.makedirs(protein_fasta_dir, exist_ok=True)
 	log_file = os.path.join(protein_fasta_dir, "fasta.log")
@@ -120,19 +152,25 @@ def main():
 				fasta_path = os.path.join(protein_fasta_dir, fasta_file)
 				with open(fasta_path, "r") as infile:
 					outfile.write(infile.read())
+	logger.info(f"Step took {time.time() - step_start:.2f} seconds")
 
 	# Make a DIAMOND database
-	print("Making the DIAMOND database")
+	step_start = time.time()
+	logger.info("Making the DIAMOND database")
 	diamond_db = os.path.join(output_dir, "all_protein.dmnd")
 	make_diamond_db(all_protein_fasta, diamond_db, cpus)
+	logger.info(f"Step took {time.time() - step_start:.2f} seconds")
 
 	# Run DIAMOND all vs all
-	print("Running the DIAMOND all vs all")
+	step_start = time.time()
+	logger.info("Running the DIAMOND all vs all")
 	blast_output_tsv = os.path.join(output_dir, "blast.tsv")
 	run_diamond(all_protein_fasta, diamond_db, blast_output_tsv, query_cover, identity, cpus)
+	logger.info(f"Step took {time.time() - step_start:.2f} seconds")
 
 	# Make presence-absence tables
-	print("Making the presence-absence tables")
+	step_start = time.time()
+	logger.info("Making the presence-absence tables")
 	pa_dir = os.path.join(output_dir, "presence_absence")
 	os.makedirs(pa_dir, exist_ok=True)
 
@@ -144,9 +182,11 @@ def main():
 	pool.close()
 	pool.join()
 	pa_tables = dict(pa_tables)
+	logger.info(f"Step took {time.time() - step_start:.2f} seconds")
 
 	# Calculating the Jaccard similarity scores
-	print("Calculating the Jaccard similarity scores")
+	step_start = time.time()
+	logger.info("Calculating the Jaccard similarity scores")
 	jaccard_similarity_scores = calculate_jaccard_similarity_scores(pa_tables)
 
 	# Write the Jaccard similarity scores to matrix files
@@ -157,6 +197,7 @@ def main():
 		jac_sim_df.insert(0, "Reference_GenBank", ref_genbank_filename)
 		output_file = os.path.join(jaccard_matrix_dir, f"{ref_genbank_filename}_jaccard_matrix.csv")
 		jac_sim_df.to_csv(output_file, index=False)
+	logger.info(f"Step took {time.time() - step_start:.2f} seconds")
 
 	# Concatenate the Jaccard matrices
 	jaccard_matrix = construct_matrix(jaccard_similarity_scores)
@@ -169,8 +210,9 @@ def main():
 	representation_scores_df.to_csv(output_file, sep="\t", index=False)
 	representative = find_medoid(jaccard_matrix)
 
-	print(f"All steps completed. Results saved to '{output_dir}'.")
-	print(f"The representative is: {representative}")
+	total_end = time.time()
+	logger.info(f"All steps completed in {total_end - total_start:.2f} seconds. Results saved to '{output_dir}'.")
+	logger.info(f"The representative is: {representative}")
 
 if __name__ == "__main__":
 	main()
