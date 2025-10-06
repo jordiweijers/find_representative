@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 VERSION = "0.1.0"
-DESCRIPTION = "Find Representative: Find a genome that is representing all the genomes the best"
+DESCRIPTION = "Find the most representative genome from a set of similar genomes, based on the presence/absence of genes."
 setup(
 	name="find_representative",
 	version=VERSION,
